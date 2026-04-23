@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentLens — AI Agent Testing</title>
+    <link rel="stylesheet" href="/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <div class="logo-icon">⬡</div>
+                    <span class="logo-text">AgentLens</span>
+                </div>
+                <span class="tagline">AI Agent Testing & Observability</span>
+            </div>
+            <div class="header-right">
+                <span class="status-badge" id="server-status">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">Connecting...</span>
+                </span>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <nav class="tabs">
+            <button class="tab active" data-tab="test-cases">Test Cases</button>
+            <button class="tab" data-tab="run-tests">Run Tests</button>
+            <button class="tab" data-tab="results">Results</button>
+            <button class="tab" data-tab="configs">Agent Configs</button>
+            <button class="tab" data-tab="stats">Stats</button>
+        </nav>
+
+        <!-- Content Area -->
+        <main class="content">
+            <!-- Test Cases Panel -->
+            <section id="panel-test-cases" class="panel active">
+                <div class="panel-header">
+                    <h2>Test Cases</h2>
+                    <button class="btn btn-primary" onclick="showCreateTestModal()">+ New Test Case</button>
+                </div>
+                <div id="test-cases-list" class="card-list">
+                    <div class="empty-state">No test cases yet. Create one to get started.</div>
+                </div>
+            </section>
+
+            <!-- Run Tests Panel -->
+            <section id="panel-run-tests" class="panel">
+                <div class="panel-header">
+                    <h2>Run Tests</h2>
+                </div>
+                <div class="run-form card">
+                    <div class="form-group">
+                        <label>Select Test Cases</label>
+                        <div class="checkbox-list" id="run-test-cases-select"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="run-api-url">API URL</label>
+                            <input type="text" id="run-api-url" value="https://openrouter.ai/api/v1" placeholder="https://openrouter.ai/api/v1">
+                        </div>
+                        <div class="form-group">
+                            <label for="run-api-key">API Key</label>
+                            <input type="password" id="run-api-key" placeholder="sk-or-...">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="run-model">Model</label>
+                        <select id="run-model">
+                            <option value="openai/gpt-4o-mini">OpenAI GPT-4o Mini</option>
+                            <option value="openai/gpt-4o">OpenAI GPT-4o</option>
+                            <option value="anthropic/claude-3-5-sonnet-20250620">Claude 3.5 Sonnet</option>
+                            <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3</option>
+                            <option value="google/gemini-2.5-pro-preview-06-05">Gemini 2.5 Pro</option>
+                            <option value="tencent/hy3-preview:free">Tencent Hy3 (Free)</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-lg" onclick="runSelectedTests()">▶ Run Selected Tests</button>
+                </div>
+
+                <div id="run-progress" class="run-progress hidden">
+                    <div class="progress-header">
+                        <span>Running tests...</span>
+                        <span id="run-progress-count">0/0</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div id="run-results-preview" class="run-results-preview"></div>
+                </div>
+            </section>
+
+            <!-- Results Panel -->
+            <section id="panel-results" class="panel">
+                <div class="panel-header">
+                    <h2>Results</h2>
+                    <div class="header-actions">
+                        <select id="results-filter" onchange="loadResults()">
+                            <option value="">All Results</option>
+                            <option value="passed">Passed</option>
+                            <option value="failed">Failed</option>
+                            <option value="error">Errors</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="results-list" class="card-list">
+                    <div class="empty-state">No test runs yet.</div>
+                </div>
+            </section>
+
+            <!-- Agent Configs Panel -->
+            <section id="panel-configs" class="panel">
+                <div class="panel-header">
+                    <h2>Agent Configurations</h2>
+                    <button class="btn btn-primary" onclick="showCreateConfigModal()">+ New Config</button>
+                </div>
+                <div id="configs-list" class="card-list">
+                    <div class="empty-state">No agent configs saved. Create one for quick test runs.</div>
+                </div>
+            </section>
+
+            <!-- Stats Panel -->
+            <section id="panel-stats" class="panel">
+                <div class="panel-header">
+                    <h2>Statistics</h2>
+                    <button class="btn btn-secondary" onclick="loadStats()">↻ Refresh</button>
+                </div>
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-total-cases">0</div>
+                        <div class="stat-label">Total Test Cases</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-total-runs">0</div>
+                        <div class="stat-label">Total Runs</div>
+                    </div>
+                    <div class="stat-card stat-passed">
+                        <div class="stat-value" id="stat-passed">0</div>
+                        <div class="stat-label">Passed</div>
+                    </div>
+                    <div class="stat-card stat-failed">
+                        <div class="stat-value" id="stat-failed">0</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                    <div class="stat-card stat-errors">
+                        <div class="stat-value" id="stat-errors">0</div>
+                        <div class="stat-label">Errors</div>
+                    </div>
+                    <div class="stat-card stat-rate">
+                        <div class="stat-value" id="stat-pass-rate">0%</div>
+                        <div class="stat-label">Pass Rate</div>
+                    </div>
+                </div>
+                <div class="pass-rate-bar" id="pass-rate-bar">
+                    <div class="pass-rate-fill" id="pass-rate-fill"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Create Test Case Modal -->
+    <div id="modal-create-test" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>New Test Case</h3>
+                <button class="btn-close" onclick="hideModal('modal-create-test')">×</button>
+            </div>
+            <form id="form-create-test" onsubmit="createTestCase(event)">
+                <div class="form-group">
+                    <label for="tc-name">Name *</label>
+                    <input type="text" id="tc-name" required placeholder="e.g., Basic Math Helper">
+                </div>
+                <div class="form-group">
+                    <label for="tc-description">Description</label>
+                    <input type="text" id="tc-description" placeholder="What this test validates">
+                </div>
+                <div class="form-group">
+                    <label for="tc-prompt">Input Prompt *</label>
+                    <textarea id="tc-prompt" required placeholder="What to ask the agent..." rows="4"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="tc-keywords">Expected Keywords</label>
+                    <input type="text" id="tc-keywords" placeholder="comma, separated, keywords">
+                    <small>Agent output must contain these keywords to pass</small>
+                </div>
+                <div class="form-group">
+                    <label for="tc-system">System Prompt</label>
+                    <textarea id="tc-system" rows="3" placeholder="Optional: custom system prompt for this test">You are a helpful AI assistant.</textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('modal-create-test')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Test Case</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Config Modal -->
+    <div id="modal-create-config" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>New Agent Config</h3>
+                <button class="btn-close" onclick="hideModal('modal-create-config')">×</button>
+            </div>
+            <form id="form-create-config" onsubmit="createAgentConfig(event)">
+                <div class="form-group">
+                    <label for="cfg-name">Name *</label>
+                    <input type="text" id="cfg-name" required placeholder="e.g., OpenRouter GPT-4o Mini">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-api-url">API URL *</label>
+                    <input type="text" id="cfg-api-url" required value="https://openrouter.ai/api/v1">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-api-key">API Key *</label>
+                    <input type="password" id="cfg-api-key" required placeholder="sk-or-...">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-model">Model *</label>
+                    <select id="cfg-model">
+                        <option value="openai/gpt-4o-mini">OpenAI GPT-4o Mini</option>
+                        <option value="openai/gpt-4o">OpenAI GPT-4o</option>
+                        <option value="anthropic/claude-3-5-sonnet-20250620">Claude 3.5 Sonnet</option>
+                        <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3</option>
+                        <option value="google/gemini-2.5-pro-preview-06-05">Gemini 2.5 Pro</option>
+                        <option value="tencent/hy3-preview:free">Tencent Hy3 (Free)</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('modal-create-config')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Config</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Run Detail Modal -->
+    <div id="modal-run-detail" class="modal hidden">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3>Run Details</h3>
+                <button class="btn-close" onclick="hideModal('modal-run-detail')">×</button>
+            </div>
+            <div id="run-detail-content"></div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
