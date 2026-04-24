@@ -12,17 +12,29 @@ init_db()
 def create_test_case(data: TestCaseCreate):
     with get_db() as db:
         cursor = db.execute('''
-            INSERT INTO test_cases (name, description, input_prompt, expected_keywords)
-            VALUES (?, ?, ?, ?)
-        ''', (data.name, data.description, data.input_prompt, data.expected_keywords))
+            INSERT INTO test_cases (name, description, input_prompt, expected_keywords, system_prompt)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (data.name, data.description, data.input_prompt, data.expected_keywords, data.system_prompt))
         db.commit()
         return {"id": cursor.lastrowid}
 
 @app.get("/api/test-cases")
-def list_test_cases():
+def list_test_cases(skip: int = 0, limit: int = 50):
     with get_db() as db:
-        rows = db.execute('SELECT * FROM test_cases ORDER BY created_at DESC').fetchall()
+        rows = db.execute('SELECT * FROM test_cases ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, skip)).fetchall()
         return [dict(r) for r in rows]
+
+@app.put("/api/test-cases/{id}")
+def update_test_case(id: int, data: TestCaseCreate):
+    with get_db() as db:
+        cursor = db.execute('''
+            UPDATE test_cases SET name=?, description=?, input_prompt=?, expected_keywords=?, system_prompt=?
+            WHERE id=?
+        ''', (data.name, data.description, data.input_prompt, data.expected_keywords, data.system_prompt, id))
+        db.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(404, "Test case not found")
+        return {"updated": True}
 
 @app.delete("/api/test-cases/{id}")
 def delete_test_case(id: int):
@@ -39,11 +51,13 @@ def create_run(data: TestRunRequest):
     import asyncio
     return asyncio.run(run_test_case(data.test_case_id, AgentConfig(
         model=data.model,
-        api_key=data.api_key or os.getenv("OPENAI_API_KEY", "")
+        api_key=data.api_key or os.getenv("OPENAI_API_KEY", ""),
+        api_url=data.api_url,
+        system_prompt=data.system_prompt or "You are a helpful AI assistant."
     )))
 
 @app.get("/api/runs")
-def list_runs(test_case_id: int = None):
+def list_runs(test_case_id: int = None, skip: int = 0, limit: int = 50):
     with get_db() as db:
         if test_case_id:
             rows = db.execute('''
@@ -52,15 +66,16 @@ def list_runs(test_case_id: int = None):
                 JOIN test_cases t ON r.test_case_id = t.id
                 WHERE r.test_case_id = ?
                 ORDER BY r.created_at DESC
-            ''', (test_case_id,)).fetchall()
+                LIMIT ? OFFSET ?
+            ''', (test_case_id, limit, skip)).fetchall()
         else:
             rows = db.execute('''
                 SELECT r.*, t.name as test_name
                 FROM test_runs r
                 JOIN test_cases t ON r.test_case_id = t.id
                 ORDER BY r.created_at DESC
-                LIMIT 50
-            ''').fetchall()
+                LIMIT ? OFFSET ?
+            ''', (limit, skip)).fetchall()
         return [dict(r) for r in rows]
 
 @app.get("/api/runs/{run_id}")
@@ -84,7 +99,8 @@ def get_stats():
         passed = db.execute("SELECT COUNT(*) as c FROM test_runs WHERE status='passed'").fetchone()['c']
         failed = db.execute("SELECT COUNT(*) as c FROM test_runs WHERE status='failed'").fetchone()['c']
         error = db.execute("SELECT COUNT(*) as c FROM test_runs WHERE status='error'").fetchone()['c']
-        return {"total_cases": total, "total_runs": runs, "passed": passed, "failed": failed, "errors": error}
+        pass_rate = round(100 * passed / runs, 1) if runs > 0 else 0
+        return {"total_cases": total, "total_runs": runs, "passed": passed, "failed": failed, "errors": error, "pass_rate": pass_rate}
 
 # --- Frontend static files ---
 frontend_dir = os.path.join(os.path.dirname(__file__), '..', 'frontend')

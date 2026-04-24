@@ -4,6 +4,8 @@ const API = ''; // relative URL, served by FastAPI
 let testCases = [];
 let agentConfigs = [];
 let runs = [];
+let lastUsedConfig = { api_url: 'https://openrouter.ai/api/v1', api_key: '', model: 'openai/gpt-4o-mini' };
+let currentRunOutput = '';
 
 // --- Init ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -12,6 +14,11 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTestCases();
     loadAgentConfigs();
     loadStats();
+    // Load last used config from localStorage
+    try {
+        const saved = localStorage.getItem('agentlens_last_config');
+        if (saved) lastUsedConfig = JSON.parse(saved);
+    } catch (e) {}
 });
 
 // --- Tabs ---
@@ -50,9 +57,18 @@ async function checkServerStatus() {
 function formatDate(dateStr) {
     if (!dateStr) return '';
     const d = new Date(dateStr);
-    return d.toLocaleString('en-IN', { 
+    return d.toLocaleString('en-IN', {
         day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
     });
+}
+
+// --- Toast Notifications ---
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = `toast toast-${type}`;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 4000);
 }
 
 // --- Test Cases ---
@@ -66,16 +82,26 @@ async function loadTestCases() {
     }
 }
 
-function renderTestCases() {
+function filterTestCases() {
+    const query = document.getElementById('test-cases-search').value.toLowerCase();
+    const filtered = testCases.filter(tc =>
+        tc.name.toLowerCase().includes(query) ||
+        (tc.description || '').toLowerCase().includes(query)
+    );
+    renderTestCasesFiltered(filtered);
+}
+
+function renderTestCasesFiltered(filtered) {
     const list = document.getElementById('test-cases-list');
-    if (testCases.length === 0) {
-        list.innerHTML = '<div class="empty-state">No test cases yet. Create one to get started.</div>';
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="empty-state">No test cases match your search.</div>';
         return;
     }
-    list.innerHTML = testCases.map(tc => `
+    list.innerHTML = filtered.map(tc => `
         <div class="card-item" onclick="showTestDetail(${tc.id})">
             <div class="card-item-header">
                 <span class="card-item-title">${escapeHtml(tc.name)}</span>
+                <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); runTestCaseFromCard(${tc.id})" title="Run this test">▶ Run</button>
                 <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestCase(${tc.id})">Delete</button>
             </div>
             ${tc.description ? `<div class="card-item-desc">${escapeHtml(tc.description)}</div>` : ''}
@@ -85,6 +111,10 @@ function renderTestCases() {
             </div>
         </div>
     `).join('');
+}
+
+function renderTestCases() {
+    renderTestCasesFiltered(testCases);
 }
 
 async function createTestCase(e) {
@@ -141,8 +171,59 @@ function showTestDetail(id) {
             <pre>${escapeHtml(tc.system_prompt)}</pre>
         </div>` : ''}
     `;
+    currentRunOutput = null;
     document.getElementById('run-detail-content').innerHTML = html;
     document.getElementById('modal-run-detail').classList.remove('hidden');
+}
+
+// --- Quick Run from Card ---
+async function runTestCaseFromCard(tcId) {
+    const tc = testCases.find(t => t.id === tcId);
+    if (!tc) return;
+
+    // If no API key in lastUsedConfig, show inline prompt
+    if (!lastUsedConfig.api_key) {
+        const apiKey = prompt('Enter API key to run test "' + tc.name + '":');
+        if (!apiKey) return;
+        lastUsedConfig.api_key = apiKey;
+        localStorage.setItem('agentlens_last_config', JSON.stringify(lastUsedConfig));
+    }
+
+    // Auto-fill run panel with last used config
+    document.getElementById('run-api-url').value = lastUsedConfig.api_url;
+    document.getElementById('run-api-key').value = lastUsedConfig.api_key;
+    document.getElementById('run-model').value = lastUsedConfig.model;
+
+    // Run immediately for this test case
+    const apiUrl = lastUsedConfig.api_url;
+    const apiKey = lastUsedConfig.api_key;
+    const model = lastUsedConfig.model;
+
+    try {
+        const res = await fetch(`${API}/api/runs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                test_case_id: tcId,
+                api_url: apiUrl,
+                api_key: apiKey,
+                model: model,
+                system_prompt: tc.system_prompt || undefined
+            })
+        });
+        const result = await res.json();
+
+        // Switch to results tab and show
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.querySelector('.tab[data-tab="results"]').classList.add('active');
+        document.getElementById('panel-results').classList.add('active');
+
+        showToast(`${tc.name}: ${result.status === 'passed' ? '✅ Passed' : result.status === 'failed' ? '❌ Failed' : '⚠ Error'}`, result.status);
+        await loadResults();
+    } catch (e) {
+        alert('Failed to run test: ' + e.message);
+    }
 }
 
 // --- Run Tests ---
@@ -170,56 +251,59 @@ async function runSelectedTests() {
     const apiUrl = document.getElementById('run-api-url').value;
     const apiKey = document.getElementById('run-api-key').value;
     const model = document.getElementById('run-model').value;
-    
+
     if (!apiKey) {
         alert('Please enter an API key');
         return;
     }
 
+    // Save as last used config
+    lastUsedConfig = { api_url: apiUrl, api_key: apiKey, model: model };
+    localStorage.setItem('agentlens_last_config', JSON.stringify(lastUsedConfig));
+
     const progress = document.getElementById('run-progress');
     const count = document.getElementById('run-progress-count');
     const fill = document.getElementById('progress-fill');
     const preview = document.getElementById('run-results-preview');
-    
+
     progress.classList.remove('hidden');
     preview.innerHTML = '';
-    
+
     let completed = 0;
     const results = [];
-    
+
     for (const id of selectedIds) {
         count.textContent = `${completed}/${selectedIds.length}`;
         const pct = (completed / selectedIds.length) * 100;
         fill.style.width = `${pct}%`;
-        
-        // Add pending item
+
         const itemId = `run-item-${id}`;
         preview.innerHTML += `<div id="${itemId}" class="result-item" style="opacity:0.5">
             <div class="result-item-header">
                 <span class="result-item-name">Running test #${id}...</span>
             </div>
         </div>`;
-        
+
         try {
+            const tc = testCases.find(t => t.id === id);
             const res = await fetch(`${API}/api/runs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ test_case_id: id, api_url: apiUrl, api_key: apiKey, model })
+                body: JSON.stringify({ test_case_id: id, api_url: apiUrl, api_key: apiKey, model: model, system_prompt: tc?.system_prompt || undefined })
             });
             const result = await res.json();
             results.push(result);
-            
-            const tc = testCases.find(t => t.id === id);
+
             const statusBadge = result.status === 'passed' ? 'badge-passed' : result.status === 'failed' ? 'badge-failed' : 'badge-error';
-            
+
             document.getElementById(itemId).outerHTML = `
-                <div class="result-item" onclick="showRunDetail(${result.id})">
+                <div class="result-item" onclick="showRunDetail(${result.run_id})">
                     <div class="result-item-header">
                         <span class="result-item-name">${escapeHtml(tc?.name || 'Test #'+id)}</span>
                         <span class="badge ${statusBadge}">${result.status}</span>
                     </div>
                     <div class="result-item-meta">
-                        <span>${result.model}</span>
+                        <span>${model}</span>
                         <span>${result.duration_ms}ms</span>
                         <span>${formatDate(result.created_at)}</span>
                     </div>
@@ -237,13 +321,27 @@ async function runSelectedTests() {
                 </div>
             `;
         }
-        
+
         completed++;
         count.textContent = `${completed}/${selectedIds.length}`;
         fill.style.width = `${(completed / selectedIds.length) * 100}%`;
     }
-    
-    // Refresh stats
+
+    // Auto-refresh results tab and show toast
+    setTimeout(async () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.querySelector('.tab[data-tab="results"]').classList.add('active');
+        document.getElementById('panel-results').classList.add('active');
+        await loadResults();
+
+        const passed = results.filter(r => r.status === 'passed').length;
+        const failed = results.filter(r => r.status === 'failed').length;
+        const errors = results.filter(r => r.status === 'error').length;
+        showToast(`Runs complete: ${passed} passed, ${failed} failed, ${errors} errors`,
+            errors > 0 ? 'error' : failed > 0 ? 'warning' : 'success');
+    }, 500);
+
     loadStats();
 }
 
@@ -253,15 +351,15 @@ async function loadResults() {
     try {
         const res = await fetch(`${API}/api/runs?limit=100`);
         runs = await res.json();
-        
+
         const filtered = filter ? runs.filter(r => r.status === filter) : runs;
-        
+
         const list = document.getElementById('results-list');
         if (filtered.length === 0) {
             list.innerHTML = '<div class="empty-state">No test runs yet.</div>';
             return;
         }
-        
+
         list.innerHTML = filtered.map(r => {
             const statusBadge = r.status === 'passed' ? 'badge-passed' : r.status === 'failed' ? 'badge-failed' : 'badge-error';
             const preview = r.error ? `Error: ${escapeHtml(r.error)}` : (r.output || '').slice(0, 200);
@@ -289,7 +387,7 @@ async function showRunDetail(runId) {
     try {
         const res = await fetch(`${API}/api/runs/${runId}`);
         const r = await res.json();
-        
+
         const statusBadge = r.status === 'passed' ? 'badge-passed' : r.status === 'failed' ? 'badge-failed' : 'badge-error';
         const errorSection = r.error ? `
             <div class="run-detail-section">
@@ -297,7 +395,9 @@ async function showRunDetail(runId) {
                 <pre class="text-red">${escapeHtml(r.error)}</pre>
             </div>
         ` : '';
-        
+
+        currentRunOutput = r.output || '';
+
         const html = `
             <div class="run-detail-header">
                 <span class="badge ${statusBadge}" style="font-size:14px;padding:6px 14px">${r.status}</span>
@@ -332,12 +432,21 @@ async function showRunDetail(runId) {
             </div>
             ${errorSection}
         `;
-        
+
         document.getElementById('run-detail-content').innerHTML = html;
         document.getElementById('modal-run-detail').classList.remove('hidden');
     } catch (e) {
         console.error('Failed to load run detail', e);
     }
+}
+
+function copyRunOutput() {
+    if (!currentRunOutput) return;
+    navigator.clipboard.writeText(currentRunOutput).then(() => {
+        showToast('Output copied to clipboard!', 'success');
+    }).catch(() => {
+        showToast('Failed to copy', 'error');
+    });
 }
 
 // --- Agent Configs ---
@@ -409,16 +518,16 @@ async function loadStats() {
     try {
         const res = await fetch(`${API}/api/stats`);
         const s = await res.json();
-        
+
         document.getElementById('stat-total-cases').textContent = s.total_cases;
         document.getElementById('stat-total-runs').textContent = s.total_runs;
         document.getElementById('stat-passed').textContent = s.passed;
         document.getElementById('stat-failed').textContent = s.failed;
         document.getElementById('stat-errors').textContent = s.errors;
-        document.getElementById('stat-pass-rate').textContent = s.pass_rate + '%';
-        
+        document.getElementById('stat-pass-rate').textContent = (s.pass_rate || 0) + '%';
+
         const bar = document.getElementById('pass-rate-fill');
-        bar.style.width = `${s.pass_rate}%`;
+        bar.style.width = `${s.pass_rate || 0}%`;
     } catch (e) {
         console.error('Failed to load stats', e);
     }
