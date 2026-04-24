@@ -15,14 +15,17 @@ async def run_test_case(test_case_id: int, config: AgentConfig):
     start = time.time()
     try:
         # Build messages
+        # Use test case's system_prompt if provided, else config's
+        system_prompt = test_case.get('system_prompt') or config.system_prompt
         messages = [
-            {"role": "system", "content": config.system_prompt},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": test_case['input_prompt']}
         ]
 
         # Call OpenAI-compatible API
         from openai import OpenAI
-        client = OpenAI(api_key=config.api_key, base_url="https://openrouter.ai/api/v1")
+        base_url = config.api_url if hasattr(config, 'api_url') else "https://openrouter.ai/api/v1"
+        client = OpenAI(api_key=config.api_key, base_url=base_url)
 
         response = client.chat.completions.create(
             model=config.model,

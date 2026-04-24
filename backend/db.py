@@ -18,6 +18,7 @@ def init_db():
             description TEXT,
             input_prompt TEXT NOT NULL,
             expected_keywords TEXT,
+            system_prompt TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -29,7 +30,23 @@ def init_db():
             tools_used TEXT,
             duration_ms INTEGER,
             error TEXT,
+            model TEXT,
+            api_url TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (test_case_id) REFERENCES test_cases(id)
         );
+        ''')
+        # Migration: add system_prompt column if missing (existing dbs)
+        try:
+            db.execute('ALTER TABLE test_cases ADD COLUMN system_prompt TEXT DEFAULT ""')
+        except Exception:
+            pass
+        try:
+            db.execute('ALTER TABLE test_runs ADD COLUMN model TEXT')
+        except Exception:
+            pass
+        try:
+            db.execute('ALTER TABLE test_runs ADD COLUMN api_url TEXT')
+        except Exception:
+            pass
         ''')
