@@ -12,25 +12,44 @@ init_db()
 def create_test_case(data: TestCaseCreate):
     with get_db() as db:
         cursor = db.execute('''
-            INSERT INTO test_cases (name, description, input_prompt, expected_keywords, system_prompt)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (data.name, data.description, data.input_prompt, data.expected_keywords, data.system_prompt))
+            INSERT INTO test_cases (name, description, input_prompt, expected_keywords, system_prompt, eval_mode, judge_model, judge_threshold, judge_prompt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.name, data.description, data.input_prompt, data.expected_keywords,
+            data.system_prompt, data.eval_mode, data.judge_model,
+            data.judge_threshold, data.judge_prompt
+        ))
         db.commit()
         return {"id": cursor.lastrowid}
 
 @app.get("/api/test-cases")
 def list_test_cases(skip: int = 0, limit: int = 50):
     with get_db() as db:
-        rows = db.execute('SELECT * FROM test_cases ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, skip)).fetchall()
+        rows = db.execute(
+            'SELECT * FROM test_cases ORDER BY created_at DESC LIMIT ? OFFSET ?',
+            (limit, skip)
+        ).fetchall()
         return [dict(r) for r in rows]
+
+@app.get("/api/test-cases/{test_id}")
+def get_test_case(test_id: int):
+    with get_db() as db:
+        row = db.execute('SELECT * FROM test_cases WHERE id = ?', (test_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Test case not found")
+        return dict(row)
 
 @app.put("/api/test-cases/{id}")
 def update_test_case(id: int, data: TestCaseCreate):
     with get_db() as db:
         cursor = db.execute('''
-            UPDATE test_cases SET name=?, description=?, input_prompt=?, expected_keywords=?, system_prompt=?
+            UPDATE test_cases SET name=?, description=?, input_prompt=?, expected_keywords=?, system_prompt=?, eval_mode=?, judge_model=?, judge_threshold=?, judge_prompt=?
             WHERE id=?
-        ''', (data.name, data.description, data.input_prompt, data.expected_keywords, data.system_prompt, id))
+        ''', (
+            data.name, data.description, data.input_prompt, data.expected_keywords,
+            data.system_prompt, data.eval_mode, data.judge_model,
+            data.judge_threshold, data.judge_prompt, id
+        ))
         db.commit()
         if cursor.rowcount == 0:
             raise HTTPException(404, "Test case not found")
@@ -49,12 +68,13 @@ def delete_test_case(id: int):
 def create_run(data: TestRunRequest):
     from agent_runner import run_test_case
     import asyncio
-    return asyncio.run(run_test_case(data.test_case_id, AgentConfig(
-        model=data.model,
-        api_key=data.api_key or os.getenv("OPENAI_API_KEY", ""),
-        api_url=data.api_url,
-        system_prompt=data.system_prompt or "You are a helpful AI assistant."
-    )))
+    return asyncio.run(run_test_case(
+        data.test_case_id,
+        data.api_url,
+        data.api_key or os.getenv("OPENAI_API_KEY", ""),
+        data.model,
+        data.system_prompt or "You are a helpful AI assistant."
+    ))
 
 @app.get("/api/runs")
 def list_runs(test_case_id: int = None, skip: int = 0, limit: int = 50):
@@ -82,7 +102,7 @@ def list_runs(test_case_id: int = None, skip: int = 0, limit: int = 50):
 def get_run(run_id: int):
     with get_db() as db:
         row = db.execute('''
-            SELECT r.*, t.name, t.description, t.input_prompt, t.expected_keywords
+            SELECT r.*, t.name, t.description, t.input_prompt, t.expected_keywords, t.eval_mode, t.judge_model, t.judge_threshold
             FROM test_runs r
             JOIN test_cases t ON r.test_case_id = t.id
             WHERE r.id = ?
@@ -98,9 +118,9 @@ def get_stats():
         runs = db.execute('SELECT COUNT(*) as c FROM test_runs').fetchone()['c']
         passed = db.execute("SELECT COUNT(*) as c FROM test_runs WHERE status='passed'").fetchone()['c']
         failed = db.execute("SELECT COUNT(*) as c FROM test_runs WHERE status='failed'").fetchone()['c']
-        error = db.execute("SELECT COUNT(*) as c FROM test_runs WHERE status='error'").fetchone()['c']
+        errors = db.execute("SELECT COUNT(*) as c FROM test_runs WHERE status='error'").fetchone()['c']
         pass_rate = round(100 * passed / runs, 1) if runs > 0 else 0
-        return {"total_cases": total, "total_runs": runs, "passed": passed, "failed": failed, "errors": error, "pass_rate": pass_rate}
+        return {"total_cases": total, "total_runs": runs, "passed": passed, "failed": failed, "errors": errors, "pass_rate": pass_rate}
 
 # --- Frontend static files ---
 frontend_dir = os.path.join(os.path.dirname(__file__), '..', 'frontend')

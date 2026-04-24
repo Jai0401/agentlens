@@ -17,8 +17,12 @@ def init_db():
             name TEXT NOT NULL,
             description TEXT,
             input_prompt TEXT NOT NULL,
-            expected_keywords TEXT,
+            expected_keywords TEXT DEFAULT '',
             system_prompt TEXT DEFAULT '',
+            eval_mode TEXT DEFAULT 'keyword',
+            judge_model TEXT DEFAULT 'openai/gpt-4o-mini',
+            judge_threshold REAL DEFAULT 7.0,
+            judge_prompt TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -32,21 +36,33 @@ def init_db():
             error TEXT,
             model TEXT,
             api_url TEXT,
+            judge_score REAL,
+            judge_reason TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (test_case_id) REFERENCES test_cases(id)
         );
         ''')
-        # Migration: add system_prompt column if missing (existing dbs)
-        try:
-            db.execute('ALTER TABLE test_cases ADD COLUMN system_prompt TEXT DEFAULT ""')
-        except Exception:
-            pass
-        try:
-            db.execute('ALTER TABLE test_runs ADD COLUMN model TEXT')
-        except Exception:
-            pass
-        try:
-            db.execute('ALTER TABLE test_runs ADD COLUMN api_url TEXT')
-        except Exception:
-            pass
-        ''')
+        
+        # Migrations for existing databases
+        for col, dtype, default in [
+            ('system_prompt', 'TEXT', '""'),
+            ('eval_mode', 'TEXT', '"keyword"'),
+            ('judge_model', 'TEXT', '"openai/gpt-4o-mini"'),
+            ('judge_threshold', 'REAL', '7.0'),
+            ('judge_prompt', 'TEXT', '""'),
+        ]:
+            try:
+                db.execute(f'ALTER TABLE test_cases ADD COLUMN {col} {dtype} DEFAULT {default}')
+            except Exception:
+                pass
+        
+        for col, dtype, default in [
+            ('model', 'TEXT', 'NULL'),
+            ('api_url', 'TEXT', 'NULL'),
+            ('judge_score', 'REAL', 'NULL'),
+            ('judge_reason', 'TEXT', 'NULL'),
+        ]:
+            try:
+                db.execute(f'ALTER TABLE test_runs ADD COLUMN {col} {dtype} DEFAULT {default}')
+            except Exception:
+                pass

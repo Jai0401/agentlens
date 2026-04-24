@@ -311,6 +311,81 @@ body {
     color: var(--yellow);
 }
 
+.badge-judge {
+    background: #7c3aed20;
+    color: #a78bfa;
+    border: 1px solid #7c3aed40;
+}
+
+.badge-keyword {
+    background: var(--cyan-bg);
+    color: var(--cyan);
+}
+
+/* Judge score display */
+.judge-score {
+    font-size: 12px;
+    color: #a78bfa;
+    margin-left: 8px;
+}
+
+.judge-score-display {
+    background: #7c3aed15;
+    border: 1px solid #7c3aed30;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.judge-score-big {
+    font-size: 32px;
+    font-weight: 700;
+    color: #a78bfa;
+    margin-bottom: 8px;
+}
+
+.judge-reason {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* Toast notification */
+.toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 9999;
+    transition: all 0.3s;
+}
+
+.toast-success { background: var(--green); color: #000; }
+.toast-error { background: var(--red); color: #fff; }
+.toast-info { background: var(--cyan); color: #000; }
+
+/* Card item actions */
+.card-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Judge fields in form */
+#judge-fields {
+    padding: 12px;
+    background: #7c3aed10;
+    border: 1px solid #7c3aed30;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+#judge-fields.hidden {
+    display: none;
+}
+
 /* Buttons */
 .btn {
     display: inline-flex;
