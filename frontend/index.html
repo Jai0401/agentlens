@@ -165,6 +165,9 @@
         </main>
     </div>
 
+    <!-- Toast notification -->
+    <div id="toast" class="toast hidden"></div>
+
     <!-- Create Test Case Modal -->
     <div id="modal-create-test" class="modal hidden">
         <div class="modal-content">
@@ -193,6 +196,30 @@
                 <div class="form-group">
                     <label for="tc-system">System Prompt</label>
                     <textarea id="tc-system" rows="3" placeholder="Optional: custom system prompt for this test">You are a helpful AI assistant.</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="tc-eval-mode">Evaluation Mode</label>
+                    <select id="tc-eval-mode" onchange="toggleJudgeFields(this.value)">
+                        <option value="keyword">Keyword Match (fast, exact)</option>
+                        <option value="judge">LLM-as-Judge (slower, semantic)</option>
+                    </select>
+                    <small>Keyword: checks for exact words. Judge: uses LLM to score accuracy/relevance/helpfulness.</small>
+                </div>
+                <div id="judge-fields" class="hidden">
+                    <div class="form-group">
+                        <label for="tc-judge-model">Judge Model</label>
+                        <select id="tc-judge-model">
+                            <option value="openai/gpt-4o-mini">GPT-4o Mini (fast, cheap)</option>
+                            <option value="openai/gpt-4o">GPT-4o (slower, smarter)</option>
+                            <option value="anthropic/claude-3-5-sonnet-20250620">Claude 3.5 Sonnet</option>
+                            <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="tc-judge-threshold">Pass Threshold (0-10)</label>
+                        <input type="number" id="tc-judge-threshold" value="7" min="0" max="10" step="0.5">
+                        <small>Judge scores ≥ this value = pass. Recommended: 7 for strict, 5 for lenient.</small>
+                    </div>
                 </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="hideModal('modal-create-test')">Cancel</button>

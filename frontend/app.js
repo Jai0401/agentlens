@@ -71,6 +71,16 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.classList.add('hidden'), 4000);
 }
 
+// --- Judge Mode Toggle ---
+function toggleJudgeFields(evalMode) {
+    const fields = document.getElementById('judge-fields');
+    if (evalMode === 'judge') {
+        fields.classList.remove('hidden');
+    } else {
+        fields.classList.add('hidden');
+    }
+}
+
 // --- Test Cases ---
 async function loadTestCases() {
     try {
@@ -101,12 +111,15 @@ function renderTestCasesFiltered(filtered) {
         <div class="card-item" onclick="showTestDetail(${tc.id})">
             <div class="card-item-header">
                 <span class="card-item-title">${escapeHtml(tc.name)}</span>
-                <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); runTestCaseFromCard(${tc.id})" title="Run this test">▶ Run</button>
-                <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestCase(${tc.id})">Delete</button>
+                <div class="card-item-actions">
+                    <span class="badge ${tc.eval_mode === 'judge' ? 'badge-judge' : 'badge-keyword'}">${tc.eval_mode === 'judge' ? '⚖ Judge' : '🔤 Keyword'}</span>
+                    <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); runTestCaseFromCard(${tc.id})" title="Run this test">▶ Run</button>
+                    <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestCase(${tc.id})">Delete</button>
+                </div>
             </div>
             ${tc.description ? `<div class="card-item-desc">${escapeHtml(tc.description)}</div>` : ''}
             <div class="card-item-meta">
-                <span>${tc.expected_keywords ? 'Keywords: ' + tc.expected_keywords : 'No keywords'}</span>
+                <span>${tc.eval_mode === 'judge' ? `Judge: ${tc.judge_model} ≥ ${tc.judge_threshold}` : (tc.expected_keywords ? 'Keywords: ' + tc.expected_keywords : 'No keywords')}</span>
                 <span>${formatDate(tc.created_at)}</span>
             </div>
         </div>
@@ -124,7 +137,11 @@ async function createTestCase(e) {
         description: document.getElementById('tc-description').value,
         input_prompt: document.getElementById('tc-prompt').value,
         expected_keywords: document.getElementById('tc-keywords').value,
-        system_prompt: document.getElementById('tc-system').value || "You are a helpful AI assistant."
+        system_prompt: document.getElementById('tc-system').value || "You are a helpful AI assistant.",
+        eval_mode: document.getElementById('tc-eval-mode').value,
+        judge_model: document.getElementById('tc-judge-model').value,
+        judge_threshold: parseFloat(document.getElementById('tc-judge-threshold').value) || 7.0,
+        judge_prompt: ''
     };
     try {
         const res = await fetch(`${API}/api/test-cases`, {
@@ -135,7 +152,9 @@ async function createTestCase(e) {
         const result = await res.json();
         hideModal('modal-create-test');
         document.getElementById('form-create-test').reset();
+        document.getElementById('judge-fields').classList.add('hidden');
         await loadTestCases();
+        showToast('Test case created!', 'success');
     } catch (e) {
         alert('Failed to create test case: ' + e.message);
     }
@@ -155,16 +174,17 @@ async function deleteTestCase(id) {
 function showTestDetail(id) {
     const tc = testCases.find(t => t.id === id);
     if (!tc) return;
+    const evalBadge = tc.eval_mode === 'judge' 
+        ? `<span class="badge badge-judge">⚖ Judge mode — ${tc.judge_model} ≥ ${tc.judge_threshold}</span>`
+        : (tc.expected_keywords ? `<span class="badge badge-keyword">🔤 Keywords: ${escapeHtml(tc.expected_keywords)}</span>` : '');
     const html = `
+        <div class="run-detail-header" style="margin-bottom:16px">
+            ${evalBadge}
+        </div>
         <div class="run-detail-section">
             <h4>Input Prompt</h4>
             <pre>${escapeHtml(tc.input_prompt)}</pre>
         </div>
-        ${tc.expected_keywords ? `
-        <div class="run-detail-section">
-            <h4>Expected Keywords</h4>
-            <pre>${escapeHtml(tc.expected_keywords)}</pre>
-        </div>` : ''}
         ${tc.system_prompt ? `
         <div class="run-detail-section">
             <h4>System Prompt</h4>
@@ -295,12 +315,14 @@ async function runSelectedTests() {
             results.push(result);
 
             const statusBadge = result.status === 'passed' ? 'badge-passed' : result.status === 'failed' ? 'badge-failed' : 'badge-error';
+            const judgeInfo = result.judge_score != null ? `<span class="judge-score" title="Judge score">⚖ ${result.judge_score}/10</span>` : '';
 
             document.getElementById(itemId).outerHTML = `
-                <div class="result-item" onclick="showRunDetail(${result.run_id})">
+                <div class="result-item" onclick="showRunDetail(${result.id})">
                     <div class="result-item-header">
                         <span class="result-item-name">${escapeHtml(tc?.name || 'Test #'+id)}</span>
                         <span class="badge ${statusBadge}">${result.status}</span>
+                        ${judgeInfo}
                     </div>
                     <div class="result-item-meta">
                         <span>${model}</span>
@@ -389,6 +411,15 @@ async function showRunDetail(runId) {
         const r = await res.json();
 
         const statusBadge = r.status === 'passed' ? 'badge-passed' : r.status === 'failed' ? 'badge-failed' : 'badge-error';
+        const judgeSection = r.judge_score != null ? `
+            <div class="run-detail-section">
+                <h4>⚖ Judge Evaluation</h4>
+                <div class="judge-score-display">
+                    <div class="judge-score-big">${r.judge_score}/10</div>
+                    <div class="judge-reason">${escapeHtml(r.judge_reason || '')}</div>
+                </div>
+            </div>
+        ` : '';
         const errorSection = r.error ? `
             <div class="run-detail-section">
                 <h4>Error</h4>
@@ -401,6 +432,7 @@ async function showRunDetail(runId) {
         const html = `
             <div class="run-detail-header">
                 <span class="badge ${statusBadge}" style="font-size:14px;padding:6px 14px">${r.status}</span>
+                ${r.judge_score != null ? `<span class="badge badge-judge">⚖ ${r.judge_score}/10</span>` : ''}
                 <span class="text-muted">${r.test_name || 'Test Run'}</span>
             </div>
             <div class="run-detail-meta">
@@ -421,11 +453,7 @@ async function showRunDetail(runId) {
                 <h4>Input Prompt</h4>
                 <pre>${escapeHtml(r.input_prompt || '')}</pre>
             </div>
-            ${r.expected_keywords ? `
-            <div class="run-detail-section">
-                <h4>Expected Keywords</h4>
-                <pre>${escapeHtml(r.expected_keywords)}</pre>
-            </div>` : ''}
+            ${judgeSection}
             <div class="run-detail-section">
                 <h4>Agent Output</h4>
                 <pre>${escapeHtml(r.output || '')}</pre>
